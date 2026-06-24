@@ -5515,6 +5515,8 @@ button.quick-card {
   font-size: 12px;
   font-weight: 900;
   text-align: center;
+  text-decoration: none;
+  cursor: pointer;
 }
 
 .notifications {

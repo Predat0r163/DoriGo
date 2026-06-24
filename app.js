@@ -7068,6 +7068,13 @@ class DashboardViews {
     const restrictedCount = adminInventory.filter(({ product }) => product.rxRequired || Number(product.stock) <= 0 || (product.moderationStatus && product.moderationStatus !== "Активен")).length;
     const complaintCount = adminOrders.filter(({ order }) => order.status === "Отменен" || Number(order.duration) > 70).length;
     const returnCount = adminOrders.filter(({ order }) => order.status === "Отменен").length;
+    const quickActions = [
+      { label: "Аптеки", icon: "hospital", href: "#admin" },
+      { label: "Единый каталог", icon: "database", href: "#admin-catalog" },
+      { label: "Цены и акции", icon: "tag", href: "#partner-pricing" },
+      { label: "Поддержка", icon: "bell", href: "#partner-support" },
+      { label: "Экспорт CSV", icon: "download", action: "export" },
+    ];
     const content = `
       <section class="page-title">
         <div><h1>Дашборд администратора</h1><p>Контроль аптек, товаров, заказов, курьеров и модерации.</p></div>
@@ -7088,7 +7095,7 @@ class DashboardViews {
         <div class="panel"><div class="panel-head"><h3>Активность курьеров</h3><a class="link-more" href="#admin">Все курьеры</a></div>${this.couriersTable()}</div>
         <div class="panel"><div class="panel-head"><h3>Возвраты и возвраты средств <span class="badge red">${returnCount}</span></h3><a class="link-more" href="#admin">Все возвраты</a></div>${this.returnsTable()}</div>
         ${this.adminRevenuePanel(admin)}
-        <div class="panel"><div class="panel-head"><h3>Быстрые действия</h3></div><div class="quick-action-grid">${["Добавить аптеку", "Добавить товар", "Создать промокод", "Уведомление клиентам", "Экспорт данных"].map((label) => `<button class="quick-action">${Ui.icon("plus-square")} ${label}</button>`).join("")}</div></div>
+        <div class="panel"><div class="panel-head"><h3>Быстрые действия</h3></div><div class="quick-action-grid">${quickActions.map((action) => action.href ? `<a class="quick-action" href="${action.href}">${Ui.icon(action.icon)} ${action.label}</a>` : `<button class="quick-action" type="button" data-admin-export>${Ui.icon(action.icon)} ${action.label}</button>`).join("")}</div></div>
         <div class="panel"><div class="panel-head"><h3>Системные уведомления <span class="badge red">3</span></h3><a class="link-more" href="#admin">Все уведомления</a></div><div class="notifications"><div class="notification"><span>32 аптеки ожидают одобрения</span><small>10 мин назад</small></div><div class="notification warn"><span>14 товаров требуют модерации</span><small>15 мин назад</small></div><div class="notification danger"><span>18 новых жалоб от клиентов</span><small>20 мин назад</small></div></div></div>
       </section>
     `;
@@ -10478,6 +10485,42 @@ class DoriGoApp {
   }
 
   bindAdminDashboardEvents() {
+    this.root.querySelector("[data-admin-export]")?.addEventListener("click", (event) => {
+      event.preventDefault();
+      const rows = this.store.accounts.marketplacePharmacies().map(({ organization, pharmacy }) => {
+        const inventory = Array.isArray(pharmacy.inventory) ? pharmacy.inventory : [];
+        const orders = Array.isArray(pharmacy.orders) ? pharmacy.orders : [];
+        const completed = orders.filter((order) => order.status === "Доставлен");
+        return [
+          pharmacy.id,
+          organization,
+          pharmacy.name,
+          pharmacy.city || "Ташкент",
+          pharmacy.district || "",
+          inventory.length,
+          inventory.filter((item) => item.published !== false && Number(item.stock) > 0).length,
+          inventory.filter((item) => Number(item.stock) <= 0).length,
+          orders.length,
+          completed.length,
+          completed.reduce((sum, order) => sum + Number(order.amount || 0), 0),
+        ];
+      });
+      this.downloadCsv("dorigo-admin-snapshot.csv", [[
+        "ID аптеки",
+        "Организация",
+        "Аптека",
+        "Город",
+        "Район",
+        "SKU",
+        "Активные предложения",
+        "Без остатка",
+        "Заказы",
+        "Доставлено",
+        "Выручка",
+      ], ...rows]);
+      this.showToast(`Экспортировано аптек: ${rows.length}`);
+    });
+
     this.root.querySelectorAll("[data-admin-product-approve]").forEach((button) => {
       button.addEventListener("click", (event) => {
         event.preventDefault();
