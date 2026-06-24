@@ -1,0 +1,88 @@
+{
+  "generatedAt": "2026-06-15T14:41:06.817Z",
+  "sources": [
+    "https://apteka.uz",
+    "https://gopharm.uz"
+  ],
+  "selected": 2,
+  "matched": [
+    {
+      "id": "uz-новоквик-02a7123aac",
+      "name": "НОВОКВИК",
+      "candidate": "Новоквик капсулы N10",
+      "slug": "novokvik-kapsuly-n10",
+      "images": 1,
+      "identity": {
+        "accepted": true,
+        "checks": {
+          "name": true,
+          "dosage": true,
+          "form": true,
+          "package": true,
+          "manufacturer": true
+        },
+        "expected": {
+          "name": "НОВОКВИК",
+          "dosage": "",
+          "form": "capsule",
+          "packageSize": "№10",
+          "manufacturer": "East African (India) Overseas"
+        },
+        "actual": {
+          "name": "Новоквик капсулы N10",
+          "dosage": "",
+          "form": "capsule",
+          "packageSize": "№10",
+          "manufacturer": "East African (India)Overseas"
+        }
+      }
+    },
+    {
+      "id": "uz-лацидофорте-082500886e",
+      "name": "ЛАЦИДОФОРТЕ",
+      "candidate": "ЛАЦИДОФОРТЕ капсулы N10",
+      "slug": "latsidoforte-kapsuly",
+      "images": 1,
+      "identity": {
+        "accepted": true,
+        "checks": {
+          "name": true,
+          "dosage": true,
+          "form": true,
+          "package": true,
+          "manufacturer": true
+        },
+        "expected": {
+          "name": "ЛАЦИДОФОРТЕ",
+          "dosage": "",
+          "form": "capsule",
+          "packageSize": "№10",
+          "manufacturer": "World Medicine Europe EOOD, Болгария произведено: Adipharm LTD"
+        },
+        "actual": {
+          "name": "ЛАЦИДОФОРТЕ капсулы N10",
+          "dosage": "",
+          "form": "capsule",
+          "packageSize": "№10",
+          "manufacturer": "World Medicine Europe, Болгария произведено: Adipharm LTD"
+        }
+      }
+    }
+  ],
+  "rejected": [
+    {
+      "id": "uz-новоквик-02a7123aac",
+      "name": "НОВОКВИК",
+      "reason": "image_download_failed",
+      "imageUrl": "https://cdn.gopharm.uz/drugs/novokvik-kaps-n10.webp",
+      "error": "HTTP 404"
+    },
+    {
+      "id": "uz-лацидофорте-082500886e",
+      "name": "ЛАЦИДОФОРТЕ",
+      "reason": "image_download_failed",
+      "imageUrl": "https://cdn.gopharm.uz/drugs/latsidoforte-kaps-10-dublikat.webp",
+      "error": "HTTP 404"
+    }
+  ]
+}
