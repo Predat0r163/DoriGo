@@ -511,8 +511,8 @@ class AccountService {
     if (!data.name?.trim() || !normalized || String(data.password || "").length < 6) {
       return { ok: false, message: "Заполните обязательные поля. Пароль должен содержать минимум 6 символов." };
     }
-    if (this.users.some((user) => this.normalizeContact(user.contact) === normalized)) {
-      return { ok: false, message: "Аккаунт с таким телефоном или email уже существует." };
+    if (this.users.some((user) => user.type === data.type && this.normalizeContact(user.contact) === normalized)) {
+      return { ok: false, message: "Аккаунт с таким телефоном или email уже существует для данного типа пользователя." };
     }
     const user = {
       id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -539,10 +539,14 @@ class AccountService {
     return { ok: true, user };
   }
 
-  async login(contact, password) {
+  async login(contact, password, type = "patient") {
     const normalized = this.normalizeContact(contact);
     const passwordHash = await this.hashPassword(password);
-    const user = this.users.find((item) => this.normalizeContact(item.contact) === normalized && item.passwordHash === passwordHash);
+    const user = this.users.find((item) => 
+      item.type === type && 
+      this.normalizeContact(item.contact) === normalized && 
+      item.passwordHash === passwordHash
+    );
     if (!user) return { ok: false, message: "Неверный телефон, email или пароль." };
     this.session = { userId: user.id, signedInAt: new Date().toISOString() };
     this.saveSession();
@@ -977,6 +981,93 @@ class DoriGoStore {
     this.categories = this.loadCategories();
     this.refreshMarketplaceProducts();
     this.selectedOrderId = this.orders[0]?.id || null;
+    this.seedMarketplaceData();
+  }
+
+  seedMarketplaceData() {
+    if (this.accounts.users.some(u => u.type === 'pharmacy')) return;
+
+    const demoPharmacies = [
+      { name: "Grand Pharm", address: "ул. Амира Темура, 15", lat: 41.3111, lon: 69.2797 },
+      { name: "Best Medicine", address: "Чиланзар, кв-л 2, 14", lat: 41.2833, lon: 69.2123 },
+      { name: "Аптека 24/7", address: "Юнусабад, 19-й квартал", lat: 41.3645, lon: 69.2871 },
+      { name: "Dori-Darmon", address: "ул. Махтумкули, 2", lat: 41.3033, lon: 69.3255 },
+      { name: "Arzon Apteka", address: "Сергели-8, д. 12", lat: 41.2211, lon: 69.2433 },
+      { name: "OxyMed", address: "ул. Ойбек, 38", lat: 41.2955, lon: 69.2711 },
+      { name: "Ташкент-Фарм", address: "ТТЗ-2, массив 1", lat: 41.3511, lon: 69.3522 },
+      { name: "Здоровье", address: "ул. Шота Руставели, 45", lat: 41.2811, lon: 69.2533 },
+      { name: "Авиценна", address: "Каракамыш 2/4", lat: 41.3533, lon: 69.2211 },
+      { name: "Центральная", address: "Сквер Амира Темура", lat: 41.3122, lon: 69.2811 }
+    ];
+
+    // Создаем аптеки
+    const createdPharmacies = [];
+    demoPharmacies.forEach(async (data, idx) => {
+      const contact = `+99890000000${idx}`;
+      const reg = await this.accounts.registerPharmacy({
+        name: "Фармацевт " + data.name,
+        pharmacyName: data.name,
+        address: "Ташкент, " + data.address,
+        contact: contact,
+        password: "password123",
+        organization: "OOO " + data.name,
+        latitude: data.lat,
+        longitude: data.lon
+      });
+      if (reg.ok) createdPharmacies.push(reg.user.pharmacies[0]);
+    });
+
+    // Запускаем распределение
+    const distribute = () => {
+      const pharmacies = this.accounts.users
+        .filter(u => u.type === 'pharmacy')
+        .flatMap(u => u.pharmacies);
+
+      if (pharmacies.length === 0) return;
+
+      let changed = false;
+      this.catalogProducts.forEach(product => {
+        // Проверяем, есть ли уже предложения для этого товара
+        const existingOffers = pharmacies.filter(ph => 
+          ph.inventory && ph.inventory.some(inv => inv.catalogId === product.id)
+        );
+
+        // Если предложений меньше 5, добавляем в случайные аптеки
+        if (existingOffers.length < 5) {
+          const needed = 5 - existingOffers.length;
+          const availablePharmacies = pharmacies.filter(ph => 
+            !ph.inventory || !ph.inventory.some(inv => inv.catalogId === product.id)
+          );
+          
+          const selected = availablePharmacies
+            .sort(() => 0.5 - Math.random())
+            .slice(0, needed);
+
+          selected.forEach(pharmacy => {
+            if (!pharmacy.inventory) pharmacy.inventory = [];
+            pharmacy.inventory.push({
+              id: `inv-${pharmacy.id}-${product.id}`,
+              catalogId: product.id,
+              name: product.name,
+              price: Math.round((15000 + Math.random() * 35000) / 500) * 500,
+              stock: Math.floor(Math.random() * 100) + 20,
+              reserve: 0,
+              published: true,
+              updatedAt: new Date().toISOString()
+            });
+            changed = true;
+          });
+        }
+      });
+
+      if (changed) {
+        this.accounts.saveUsers();
+        this.refreshMarketplaceProducts();
+      }
+    };
+
+    // Выполняем проверку и наполнение
+    setTimeout(distribute, 300);
   }
 
   loadCatalogContent() {
@@ -4289,10 +4380,8 @@ class Ui {
           ${Ui.brand()}
           <nav class="public-nav" aria-label="Главное меню">
             <a href="#search">Каталог</a>
-            <a href="#search" data-public-search-link>Аптеки</a>
             <a href="#order">Доставка</a>
             <a href="#partner">Для аптек</a>
-            <a href="mailto:support@dorigo.uz">Контакты</a>
           </nav>
           <div class="public-search">
             ${Ui.icon("search")}
@@ -4684,6 +4773,7 @@ class Ui {
           </div>
           <form class="location-picker-form" data-location-picker-form>
             <div class="location-picker-map">
+              <div class="location-center-pin">${Ui.icon(isPharmacy ? "hospital" : "map-pin")}</div>
               ${Ui.mapSurface({
                 latitude: centerLatitude,
                 longitude: centerLongitude,
@@ -4719,14 +4809,15 @@ class Ui {
                   <button class="icon-button" type="button" data-location-search title="Найти адрес на карте">${Ui.icon("search")}</button>
                 </span>
               </label>
-              <div class="location-search-status" data-location-status data-tone="${Format.escape(picker.statusTone || "")}" aria-live="polite">${Format.escape(picker.status || "Можно искать адрес или выбрать точку непосредственно на карте.")}</div>
-              <div class="form-two">
-                <label class="settings-input"><span>Широта</span><input name="latitude" type="number" step="any" required value="${latitude.toFixed(6)}" /></label>
-                <label class="settings-input"><span>Долгота</span><input name="longitude" type="number" step="any" required value="${longitude.toFixed(6)}" /></label>
-              </div>
+              <div class="location-search-status" data-location-status data-tone="${Format.escape(picker.statusTone || "")}" aria-live="polite">${Format.escape(picker.status || "Перетащите карту, чтобы выбрать точное место.")}</div>
+              
               <div class="location-action-stack">
                 <button class="btn ghost location-current-button" type="button" data-location-current>${Ui.icon("navigation")} Моё текущее местоположение</button>
-                <button class="btn ghost" type="button" data-location-reverse>${Ui.icon("map-pin")} Определить адрес точки</button>
+              </div>
+
+              <div style="display:none">
+                <input name="latitude" type="hidden" value="${latitude.toFixed(6)}" />
+                <input name="longitude" type="hidden" value="${longitude.toFixed(6)}" />
               </div>
               <div class="location-coordinate-note">
                 <span class="icon-tile">${Ui.icon("map-pin")}</span>
@@ -4734,11 +4825,9 @@ class Ui {
               </div>
               <small class="location-geocoder-note">Поиск адресов использует данные OpenStreetMap; карта и маршруты открываются в Google Maps.</small>
             </div>
-            <div class="location-picker-actions">
-              <button class="btn ghost" type="button" data-close-location-picker>Отмена</button>
-              <button class="btn primary" type="submit">${Ui.icon("check-circle")} Сохранить точку</button>
-            </div>
-          </form>
+              <div class="location-picker-actions">
+                <button class="btn primary full-width" type="submit">${Ui.icon("check-circle")} Подтвердить адрес</button>
+              </div>          </form>
         </section>
       </div>
     `;
@@ -8035,7 +8124,7 @@ class DoriGoApp {
                 isNetwork: form.elements.isNetwork?.checked,
               })
             : await this.accounts.registerPatient(data)
-          : await this.accounts.login(data.contact, data.password);
+          : await this.accounts.login(data.contact, data.password, data.accountType || "patient");
         if (!result.ok) {
           this.showToast(result.message);
           return;
@@ -9302,26 +9391,67 @@ class DoriGoApp {
     this.renderMapRoute(surface, width, height);
   }
 
+  async fetchMapRoute(start, end) {
+    const key = `${start.latitude.toFixed(5)},${start.longitude.toFixed(5)}:${end.latitude.toFixed(5)},${end.longitude.toFixed(5)}`;
+    if (!this.routeCache) this.routeCache = new Map();
+    if (this.routeCache.has(key)) return this.routeCache.get(key);
+
+    try {
+      const url = `https://router.project-osrm.org/route/v1/driving/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson`;
+      const response = await fetch(url);
+      const data = await response.json();
+      if (data.code !== "Ok" || !data.routes?.[0]) return null;
+      
+      const routeData = data.routes[0].geometry.coordinates.map(([lon, lat]) => ({ latitude: lat, longitude: lon }));
+      this.routeCache.set(key, routeData);
+      return routeData;
+    } catch (error) {
+      console.error("Failed to fetch route:", error);
+      return null;
+    }
+  }
+
   renderMapRoute(surface, width, height) {
     const route = surface.querySelector("[data-map-route-line]");
     if (!route) return;
+    
     const markers = [...surface.querySelectorAll("[data-map-marker]")].filter((marker) => !marker.classList.contains("is-outside"));
     if (surface.dataset.mapRoute !== "true" || markers.length < 2) {
       route.innerHTML = "";
       return;
     }
-    const points = markers.slice(0, 2).map((marker) => ({
-      x: Number.parseFloat(marker.style.left),
-      y: Number.parseFloat(marker.style.top),
-    }));
-    if (points.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))) {
-      route.innerHTML = "";
+
+    const zoom = Number(surface.dataset.mapZoom) || 14;
+    const center = {
+      latitude: Number(surface.dataset.mapLatitude),
+      longitude: Number(surface.dataset.mapLongitude),
+    };
+
+    const startMarker = markers[0];
+    const endMarker = markers[1];
+    
+    const startCoords = { latitude: Number(startMarker.dataset.latitude), longitude: Number(startMarker.dataset.longitude) };
+    const endCoords = { latitude: Number(endMarker.dataset.latitude), longitude: Number(endMarker.dataset.longitude) };
+
+    // Если маршрут уже загружен в кэш, рисуем его
+    const key = `${startCoords.latitude.toFixed(5)},${startCoords.longitude.toFixed(5)}:${endCoords.latitude.toFixed(5)},${endCoords.longitude.toFixed(5)}`;
+    if (this.routeCache?.has(key)) {
+      const pathPoints = this.routeCache.get(key).map(p => MapMath.pointFromCenter(p, center, zoom, width, height));
+      const d = pathPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+      route.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      route.innerHTML = `<path d="${d}" vector-effect="non-scaling-stroke" class="route-line-real"></path>`;
       return;
     }
-    const [start, end] = points;
-    const midX = (start.x + end.x) / 2;
+
+    // Иначе рисуем временную прямую и запрашиваем реальный маршрут
+    this.fetchMapRoute(startCoords, endCoords).then(result => {
+      if (result) this.renderMapSurface(surface);
+    });
+
+    const p1 = MapMath.pointFromCenter(startCoords, center, zoom, width, height);
+    const p2 = MapMath.pointFromCenter(endCoords, center, zoom, width, height);
     route.setAttribute("viewBox", `0 0 ${width} ${height}`);
-    route.innerHTML = `<path d="M ${start.x.toFixed(1)} ${start.y.toFixed(1)} C ${midX.toFixed(1)} ${start.y.toFixed(1)}, ${midX.toFixed(1)} ${end.y.toFixed(1)}, ${end.x.toFixed(1)} ${end.y.toFixed(1)}" vector-effect="non-scaling-stroke"></path>`;
+    route.innerHTML = `<path d="M ${p1.x.toFixed(1)} ${p1.y.toFixed(1)} L ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}" vector-effect="non-scaling-stroke" class="route-line-temp"></path>`;
   }
 
   syncLocationPickerSurface(surface) {
@@ -9362,6 +9492,11 @@ class DoriGoApp {
     this.locationPicker.latitude = nextCenter.latitude;
     this.locationPicker.longitude = nextCenter.longitude;
     this.updateLocationPickerDom();
+    
+    // Автоматически сбрасываем статус при движении
+    if (this.locationPicker.status) {
+      this.setLocationPickerStatus("", "");
+    }
   }
 
   openLocationPicker(data) {
@@ -9525,7 +9660,10 @@ class DoriGoApp {
         window.removeEventListener("pointermove", moveMap);
         window.removeEventListener("pointerup", finishPan);
         window.removeEventListener("pointercancel", finishPan);
-        if (panMoved) this.setLocationPickerStatus("Точка изменена. Сохраните новое местоположение.", "success");
+        if (panMoved) {
+          this.setLocationPickerStatus("Определяем адрес...", "");
+          this.searchLocationAddress(true);
+        }
       };
 
       window.addEventListener("pointermove", moveMap);
@@ -9938,11 +10076,13 @@ class DoriGoApp {
     });
 
     const excelInput = this.root.querySelector("[data-excel-input]");
-    this.root.querySelectorAll("[data-excel-template]").forEach((button) => {
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        this.downloadExcelTemplate();
-      });
+    this.root.querySelector("[data-excel-template]")?.addEventListener("click", () => this.downloadCurrentPrice());
+    this.root.querySelector("[data-excel-upload]")?.addEventListener("click", () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.xlsx, .xls, .csv';
+      input.onchange = (e) => this.handleExcelUpload(e.target.files[0]);
+      input.click();
     });
 
     this.root.querySelectorAll("[data-catalog-reference]").forEach((button) => {
@@ -10113,21 +10253,117 @@ class DoriGoApp {
     this.downloadBlob(filename, csv, "text/csv;charset=utf-8");
   }
 
-  downloadDataBackup() {
-    const keys = this.backupStorageKeys();
-    const data = {};
-    keys.forEach((key) => {
-      data[key] = window.localStorage.getItem(key);
-    });
-    const backup = {
-      schema: "dorigo-local-backup",
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      route: this.currentRoute(),
-      data,
+  downloadCurrentPrice() {
+    const pharmacy = this.accounts.activePharmacy();
+    if (!pharmacy) return;
+
+    const data = pharmacy.inventory.map(item => ({
+      'DoriGo ID': item.catalogId,
+      'Регистрационный номер': item.regNumber || '',
+      'Штрихкод / GTIN': item.barcode || '',
+      'Название': item.name,
+      'МНН': item.mnn || '',
+      'Дозировка': item.dosage || '',
+      'Форма': item.form || '',
+      'Производитель': item.manufacturer || '',
+      'Серия': item.series || '',
+      'Срок годности': Format.expiryLabel(item.expiry),
+      'Цена': item.price,
+      'Остаток': item.stock,
+      'Аптека': pharmacy.name,
+      'Адрес филиала': pharmacy.address
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Прайс-лист DoriGo");
+    
+    const fileName = `DoriGo_Inventory_${pharmacy.name.replace(/\s+/g, '_')}.xlsx`;
+    XLSX.writeFile(workbook, fileName);
+  }
+
+  async handleExcelUpload(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(firstSheet);
+
+      const result = this.store.importPharmacyRows(rows.map(row => ({
+        catalogId: row['DoriGo ID'],
+        regNumber: row['Регистрационный номер'],
+        barcode: row['Штрихкод / GTIN'] || row['Штрихкод'],
+        name: row['Название'],
+        series: row['Серия'],
+        price: row['Цена'],
+        stock: row['Остаток'],
+        expiry: row['Срок годности']
+      })));
+
+      this.render();
+      this.showToast(
+        result.errors > 0 
+          ? `Обработано ${result.uploaded} строк. Ошибок: ${result.errors}. Проверьте отчет.` 
+          : `Успешно обновлено ${result.updated + result.added} позиций.`,
+        result.errors > 0 ? "error" : "success"
+      );
     };
-    this.downloadBlob(`dorigo-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(backup, null, 2), "application/json;charset=utf-8");
-    this.showToast(`Резервная копия скачана: ${keys.length} разделов данных.`);
+    reader.readAsArrayBuffer(file);
+  }
+
+  async syncInventoryByUrl() {
+    const pharmacy = this.accounts.activePharmacy();
+    if (!pharmacy || !pharmacy.syncUrl) return { ok: false, message: "Ссылка для синхронизации не указана" };
+
+    this.recordSyncEvent("Запуск авто-синхронизации", "В процессе", `URL: ${pharmacy.syncUrl}`);
+
+    try {
+      const response = await fetch(pharmacy.syncUrl);
+      if (!response.ok) throw new Error(`Ошибка загрузки: ${response.status}`);
+      
+      const data = await response.arrayBuffer();
+      const workbook = XLSX.read(data, { type: 'array' });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(firstSheet);
+
+      const result = this.importPharmacyRows(rows.map(row => ({
+        catalogId: row['ID DoriGo'] || row['ID'] || row['id'],
+        name: row['Название'] || row['Наименование'] || row['Name'],
+        price: row['Цена'] || row['Стоимость'] || row['Price'],
+        stock: row['Остаток'] || row['Количество'] || row['Stock'],
+        expiry: row['Срок годности'] || row['Срок'] || row['Expiry'],
+        barcode: row['Штрихкод'] || row['Barcode']
+      })), { skipSyncLog: true });
+
+      this.recordSyncEvent(
+        "Авто-синхронизация завершена", 
+        result.errors > 0 ? "С ошибками" : "Успешно", 
+        `Обновлено: ${result.updated}, Ошибок: ${result.errors}`
+      );
+
+      return { ok: true, result };
+    } catch (error) {
+      this.recordSyncEvent("Ошибка авто-синхронизации", "Ошибка", error.message);
+      return { ok: false, message: error.message };
+    }
+  }
+
+  recordSyncEvent(event, status, details) {
+    const pharmacy = this.accounts.activePharmacy();
+    if (!pharmacy) return;
+    if (!pharmacy.syncEvents) pharmacy.syncEvents = [];
+    
+    pharmacy.syncEvents.unshift({
+      id: Date.now(),
+      event,
+      status,
+      details,
+      timestamp: new Date().toISOString()
+    });
+    
+    if (pharmacy.syncEvents.length > 50) pharmacy.syncEvents.pop();
+    this.accounts.saveUsers();
   }
 
   async restoreDataBackup(file) {

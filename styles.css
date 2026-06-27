@@ -2222,12 +2222,25 @@ img {
 
 .dorigo-map-route-line path {
   fill: none;
-  stroke: #0b78f0;
-  stroke-width: 4;
+  stroke: var(--blue);
+  stroke-width: 5;
   stroke-linecap: round;
-  stroke-dasharray: 10 8;
-  filter: drop-shadow(0 2px 5px rgba(11, 120, 240, 0.3));
+  stroke-linejoin: round;
+  opacity: 0.8;
 }
+
+.route-line-temp {
+  stroke-dasharray: 8 8;
+  stroke: var(--muted) !important;
+  stroke-width: 3 !important;
+}
+
+.route-line-real {
+  stroke: var(--blue) !important;
+  filter: drop-shadow(0 2px 4px rgba(22, 119, 255, 0.3)) !important;
+  stroke-dasharray: none !important;
+}
+
 
 .dorigo-map-marker {
   position: absolute;
@@ -4942,8 +4955,47 @@ button.quick-card {
 }
 
 .location-picker-map {
-  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  height: 400px;
 }
+
+.location-center-pin {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -100%);
+  z-index: 10;
+  pointer-events: none;
+  color: var(--red);
+  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2));
+  transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.location-picker-surface:active ~ .location-center-pin {
+  transform: translate(-50%, -120%) scale(1.1);
+}
+
+.location-center-pin svg {
+  width: 48px;
+  height: 48px;
+}
+
+.location-center-pin::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 8px;
+  height: 4px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 50%;
+  transform: translateX(-50%);
+}
+
 
 .location-picker-surface {
   position: relative;
